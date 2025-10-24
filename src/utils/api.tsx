@@ -35,6 +35,11 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
   return response.json();
 };
 
+// Health check
+export const healthCheck = async () => {
+  return fetchWithAuth(`${BASE_URL}/health`);
+};
+
 // Auth
 export const signup = async (email: string, password: string, name: string) => {
   return fetchWithAuth(`${BASE_URL}/auth/signup`, {

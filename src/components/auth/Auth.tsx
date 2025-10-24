@@ -119,7 +119,7 @@ export function Auth({ onAuthSuccess }: AuthProps) {
 
               <Button
                 type="submit"
-                className="w-full bg-black text-white hover:bg-gray-800"
+                className="w-full bg-gradient-to-r from-yellow-400 to-yellow-500 text-black hover:from-yellow-500 hover:to-yellow-600"
                 disabled={loading}
               >
                 {loading ? 'Logging in...' : 'Log In'}
@@ -169,7 +169,7 @@ export function Auth({ onAuthSuccess }: AuthProps) {
 
               <Button
                 type="submit"
-                className="w-full bg-black text-white hover:bg-gray-800"
+                className="w-full bg-gradient-to-r from-yellow-400 to-yellow-500 text-black hover:from-yellow-500 hover:to-yellow-600"
                 disabled={loading}
               >
                 {loading ? 'Creating account...' : 'Create Account'}
