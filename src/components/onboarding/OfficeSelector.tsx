@@ -4,17 +4,21 @@ import { Card } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Briefcase, Users, Plus, Building, AlertCircle } from 'lucide-react';
+import { Briefcase, Users, Plus, Building, AlertCircle, Crown } from 'lucide-react';
+import { Badge } from '../ui/badge';
 import { toast } from 'sonner@2.0.3';
 import { createOffice, joinOffice, getUserOffices, isUsingLocalStorage } from '../../utils/storage';
+import { canCreateOffice, type Subscription } from '../../App';
 import type { AppState } from '../../App';
 
 interface OfficeSelectorProps {
   userName: string;
+  subscription: Subscription | null;
   onComplete: (state: AppState) => void;
+  onNeedSubscription: () => void;
 }
 
-export function OfficeSelector({ userName, onComplete }: OfficeSelectorProps) {
+export function OfficeSelector({ userName, subscription, onComplete, onNeedSubscription }: OfficeSelectorProps) {
   const [mode, setMode] = useState<'select' | 'create' | 'join' | 'loading'>('loading');
   const [offices, setOffices] = useState<any[]>([]);
   const [officeName, setOfficeName] = useState('');
@@ -39,6 +43,25 @@ export function OfficeSelector({ userName, onComplete }: OfficeSelectorProps) {
   };
 
   const handleCreateOffice = async () => {
+    // Check subscription before creating office
+    if (!subscription) {
+      toast.error('You need a subscription to create an office');
+      onNeedSubscription();
+      return;
+    }
+
+    if (subscription.status === 'expired') {
+      toast.error('Your subscription has expired. Please renew to create offices.');
+      onNeedSubscription();
+      return;
+    }
+
+    if (!canCreateOffice(subscription, offices.length)) {
+      toast.error(`Your ${subscription.plan} plan allows only ${subscription.plan === 'starter' ? '1 office' : subscription.plan === 'professional' ? '5 offices' : 'unlimited offices'}. Upgrade to create more.`);
+      onNeedSubscription();
+      return;
+    }
+
     if (!officeName.trim()) {
       toast.error('Please enter an office name');
       return;
@@ -50,8 +73,8 @@ export function OfficeSelector({ userName, onComplete }: OfficeSelectorProps) {
       
       const newState: AppState = {
         office: data.office,
-        currentEmployee: { ...data.employee, payRate: 0 },
-        employees: [{ ...data.employee, payRate: 0 }],
+        currentEmployee: { ...data.employee, payRate: 0, status: 'available' },
+        employees: [{ ...data.employee, payRate: 0, status: 'offline' }],
         roles: data.roles
       };
 

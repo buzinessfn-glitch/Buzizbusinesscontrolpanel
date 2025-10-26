@@ -2,10 +2,7 @@ import { useState, useEffect } from 'react';
 import { Auth } from './components/auth/Auth';
 import { OfficeSelector } from './components/onboarding/OfficeSelector';
 import { Dashboard } from './components/dashboard/Dashboard';
-import { LandingPage } from './components/marketing/LandingPage';
-import { PricingPage } from './components/marketing/PricingPage';
-import { AboutPage } from './components/marketing/AboutPage';
-import { FeaturesPage } from './components/marketing/FeaturesPage';
+import { MarketingPages } from './components/marketing/MarketingPages';
 import { PaymentCheckout } from './components/payment/PaymentCheckout';
 import { Toaster } from './components/ui/sonner';
 import { createClient } from './utils/supabase/client';
@@ -19,6 +16,8 @@ export interface Employee {
   isCreator: boolean;
   isHeadManager: boolean;
   payRate?: number;
+  status?: 'available' | 'dnd' | 'on-break' | 'offline' | 'clocked-in';
+  lastActive?: string;
 }
 
 export interface Office {
@@ -36,6 +35,14 @@ export interface Role {
   description?: string;
 }
 
+export interface Subscription {
+  plan: 'starter' | 'professional' | 'enterprise';
+  status: 'active' | 'trial' | 'expired';
+  trialEndsAt?: string;
+  nextBillingDate?: string;
+  officeCount?: number;
+}
+
 export interface AppState {
   office: Office | null;
   currentEmployee: Employee | null;
@@ -43,15 +50,33 @@ export interface AppState {
   roles: Role[];
 }
 
-type AppView = 'landing' | 'auth' | 'pricing' | 'about' | 'features' | 'checkout' | 'office-select' | 'dashboard';
+type MarketingView = 'landing' | 'pricing' | 'about' | 'features';
+type AppView = 'marketing' | 'auth' | 'checkout' | 'office-select' | 'dashboard';
+
+const PLAN_LIMITS = {
+  starter: { offices: 1, members: 10, features: ['basic'] },
+  professional: { offices: 5, members: 50, features: ['basic', 'advanced'] },
+  enterprise: { offices: 999, members: 999, features: ['basic', 'advanced', 'enterprise'] }
+};
+
+export function getPlanFeatures(plan: string): string[] {
+  return PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS]?.features || ['basic'];
+}
+
+export function canCreateOffice(subscription: Subscription | null, currentOfficeCount: number): boolean {
+  if (!subscription || subscription.status === 'expired') return false;
+  const limit = PLAN_LIMITS[subscription.plan]?.offices || 0;
+  return currentOfficeCount < limit;
+}
 
 export default function App() {
-  const [view, setView] = useState<AppView>('landing');
+  const [view, setView] = useState<AppView>('marketing');
+  const [marketingView, setMarketingView] = useState<MarketingView>('landing');
   const [session, setSession] = useState<any>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<'starter' | 'professional' | 'enterprise' | null>(null);
-  const [subscription, setSubscription] = useState<any>(null);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [appState, setAppState] = useState<AppState>({
     office: null,
     currentEmployee: null,
@@ -62,7 +87,6 @@ export default function App() {
   useEffect(() => {
     const supabase = createClient();
     
-    // Check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) {
@@ -74,7 +98,6 @@ export default function App() {
       setLoading(false);
     });
 
-    // Listen for auth changes
     const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) {
@@ -84,7 +107,8 @@ export default function App() {
       } else {
         setAuthToken(null);
         setUserName(null);
-        setView('landing');
+        setView('marketing');
+        setMarketingView('landing');
       }
     });
 
@@ -94,7 +118,12 @@ export default function App() {
   const checkSubscription = () => {
     const stored = localStorage.getItem('buziz:subscription');
     if (stored) {
-      setSubscription(JSON.parse(stored));
+      const sub = JSON.parse(stored);
+      // Check if trial or subscription expired
+      if (sub.trialEndsAt && new Date(sub.trialEndsAt) < new Date()) {
+        sub.status = 'expired';
+      }
+      setSubscription(sub);
     }
   };
 
@@ -103,14 +132,7 @@ export default function App() {
     setAuthToken(newSession.access_token);
     setUserName(newSession.user.user_metadata?.name || newSession.user.email || 'User');
     checkSubscription();
-    
-    // Check if they have a subscription
-    const stored = localStorage.getItem('buziz:subscription');
-    if (stored) {
-      setView('office-select');
-    } else {
-      setView('pricing');
-    }
+    setView('office-select');
   };
 
   const handleOfficeSelected = (state: AppState) => {
@@ -124,17 +146,9 @@ export default function App() {
     setSession(null);
     setAuthToken(null);
     setUserName(null);
-    setAppState({
-      office: null,
-      currentEmployee: null,
-      employees: [],
-      roles: []
-    });
-    setView('landing');
-  };
-
-  const handleBackToAuth = () => {
-    setView('auth');
+    setAppState({ office: null, currentEmployee: null, employees: [], roles: [] });
+    setView('marketing');
+    setMarketingView('landing');
   };
 
   const handleSelectPlan = (plan: 'starter' | 'professional' | 'enterprise') => {
@@ -155,47 +169,15 @@ export default function App() {
     );
   }
 
-  if (view === 'landing') {
+  if (view === 'marketing') {
     return (
       <>
-        <LandingPage
+        <MarketingPages
+          currentView={marketingView}
+          onNavigate={setMarketingView}
           onGetStarted={() => setView('auth')}
-          onViewPricing={() => setView('pricing')}
-          onViewAbout={() => setView('about')}
-          onViewFeatures={() => setView('features')}
-        />
-        <Toaster />
-      </>
-    );
-  }
-
-  if (view === 'pricing') {
-    return (
-      <>
-        <PricingPage
-          onBack={() => setView(session ? 'office-select' : 'landing')}
+          onLogin={() => setView('auth')}
           onSelectPlan={handleSelectPlan}
-        />
-        <Toaster />
-      </>
-    );
-  }
-
-  if (view === 'about') {
-    return (
-      <>
-        <AboutPage onBack={() => setView('landing')} />
-        <Toaster />
-      </>
-    );
-  }
-
-  if (view === 'features') {
-    return (
-      <>
-        <FeaturesPage
-          onBack={() => setView('landing')}
-          onGetStarted={() => setView('auth')}
         />
         <Toaster />
       </>
@@ -208,7 +190,7 @@ export default function App() {
         <PaymentCheckout
           plan={selectedPlan}
           onSuccess={handlePaymentSuccess}
-          onCancel={() => setView('pricing')}
+          onCancel={() => setView('marketing')}
         />
         <Toaster />
       </>
@@ -227,16 +209,30 @@ export default function App() {
   if (view === 'office-select' || !appState.office || !appState.currentEmployee) {
     return (
       <>
-        <OfficeSelector userName={userName!} onComplete={handleOfficeSelected} />
+        <OfficeSelector
+          userName={userName!}
+          subscription={subscription}
+          onComplete={handleOfficeSelected}
+          onNeedSubscription={() => {
+            setMarketingView('pricing');
+            setView('marketing');
+          }}
+        />
         <Toaster />
       </>
     );
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <Dashboard appState={appState} setAppState={setAppState} onLogout={handleLogout} onBackToAuth={handleBackToAuth} />
+    <>
+      <Dashboard
+        appState={appState}
+        setAppState={setAppState}
+        subscription={subscription}
+        onLogout={handleLogout}
+        onBackToOfficeSelect={() => setView('office-select')}
+      />
       <Toaster />
-    </div>
+    </>
   );
 }

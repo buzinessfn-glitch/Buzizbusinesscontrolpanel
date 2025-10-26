@@ -13,7 +13,10 @@ import {
   X,
   Clock,
   Shield,
-  FileText
+  FileText,
+  UserX,
+  Coffee,
+  Video
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Overview } from './Overview';
@@ -27,34 +30,44 @@ import { SettingsPanel } from './SettingsPanel';
 import { TimeTracking } from './TimeTracking';
 import { RolesManagement } from './RolesManagement';
 import { ActivityLogs } from './ActivityLogs';
-import type { AppState } from '../../App';
+import { LeaveManagement } from './LeaveManagement';
+import { Meetings } from './Meetings';
+import type { AppState, Subscription } from '../../App';
+import { getPlanFeatures } from '../../App';
 
 interface DashboardProps {
   appState: AppState;
   setAppState: (state: AppState) => void;
+  subscription: Subscription | null;
   onLogout: () => void;
-  onBackToAuth: () => void;
+  onBackToOfficeSelect: () => void;
 }
 
-type View = 'overview' | 'time-tracking' | 'shifts' | 'tasks' | 'inventory' | 'staff' | 'announcements' | 'suppliers' | 'roles' | 'activity-logs' | 'settings';
+type View = 'overview' | 'time-tracking' | 'shifts' | 'tasks' | 'inventory' | 'staff' | 'announcements' | 'suppliers' | 'roles' | 'activity-logs' | 'leave' | 'meetings' | 'settings';
 
-export function Dashboard({ appState, setAppState, onLogout, onBackToAuth }: DashboardProps) {
+export function Dashboard({ appState, setAppState, subscription, onLogout, onBackToOfficeSelect }: DashboardProps) {
   const [currentView, setCurrentView] = useState<View>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const features = subscription ? getPlanFeatures(subscription.plan) : ['basic'];
+  const hasAdvanced = features.includes('advanced');
+  const hasEnterprise = features.includes('enterprise');
+
   const menuItems = [
-    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'time-tracking', label: 'Time Clock', icon: Clock },
-    { id: 'shifts', label: 'Shifts', icon: Calendar },
-    { id: 'tasks', label: 'Tasks', icon: CheckSquare },
-    { id: 'inventory', label: 'Inventory', icon: Package },
-    { id: 'suppliers', label: 'Suppliers', icon: Truck },
-    { id: 'staff', label: 'Staff', icon: Users },
-    { id: 'roles', label: 'Roles', icon: Shield },
-    { id: 'announcements', label: 'Announcements', icon: Megaphone },
-    { id: 'activity-logs', label: 'Activity Logs', icon: FileText },
-    { id: 'settings', label: 'Settings', icon: Settings },
-  ];
+    { id: 'overview', label: 'Overview', icon: LayoutDashboard, requiresFeature: null },
+    { id: 'time-tracking', label: 'Time Clock', icon: Clock, requiresFeature: null },
+    { id: 'shifts', label: 'Shifts', icon: Calendar, requiresFeature: null },
+    { id: 'tasks', label: 'Tasks', icon: CheckSquare, requiresFeature: null },
+    { id: 'leave', label: 'Leave & Time Off', icon: UserX, requiresFeature: 'advanced' },
+    { id: 'meetings', label: 'Meetings', icon: Video, requiresFeature: 'advanced' },
+    { id: 'inventory', label: 'Inventory', icon: Package, requiresFeature: 'advanced' },
+    { id: 'suppliers', label: 'Suppliers', icon: Truck, requiresFeature: 'advanced' },
+    { id: 'staff', label: 'Staff', icon: Users, requiresFeature: null },
+    { id: 'roles', label: 'Roles', icon: Shield, requiresFeature: 'advanced' },
+    { id: 'announcements', label: 'Announcements', icon: Megaphone, requiresFeature: null },
+    { id: 'activity-logs', label: 'Activity Logs', icon: FileText, requiresFeature: 'advanced' },
+    { id: 'settings', label: 'Settings', icon: Settings, requiresFeature: null },
+  ].filter(item => !item.requiresFeature || features.includes(item.requiresFeature));
 
   const renderView = () => {
     switch (currentView) {
@@ -66,6 +79,10 @@ export function Dashboard({ appState, setAppState, onLogout, onBackToAuth }: Das
         return <Shifts appState={appState} setAppState={setAppState} />;
       case 'tasks':
         return <Tasks appState={appState} setAppState={setAppState} />;
+      case 'leave':
+        return <LeaveManagement appState={appState} />;
+      case 'meetings':
+        return <Meetings appState={appState} />;
       case 'inventory':
         return <Inventory appState={appState} setAppState={setAppState} />;
       case 'staff':
@@ -120,7 +137,7 @@ export function Dashboard({ appState, setAppState, onLogout, onBackToAuth }: Das
         <div className="p-4 border-t border-gray-800 space-y-2">
           <Button
             variant="ghost"
-            onClick={onBackToAuth}
+            onClick={onBackToOfficeSelect}
             className="w-full justify-start text-gray-300 hover:bg-gray-900 hover:text-white"
           >
             <Users className="w-5 h-5 mr-3" />
@@ -182,7 +199,7 @@ export function Dashboard({ appState, setAppState, onLogout, onBackToAuth }: Das
             <div className="p-4 border-t border-gray-800 flex-shrink-0 space-y-2">
               <Button
                 variant="ghost"
-                onClick={onBackToAuth}
+                onClick={onBackToOfficeSelect}
                 className="w-full justify-start text-gray-300 hover:bg-gray-900 hover:text-white"
               >
                 <Users className="w-5 h-5 mr-3" />

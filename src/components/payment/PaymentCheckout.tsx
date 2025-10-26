@@ -21,6 +21,7 @@ const PLAN_DETAILS = {
   starter: {
     name: 'Starter',
     price: 9,
+    hasTrial: true,
     features: [
       'Up to 10 team members',
       'Basic time tracking',
@@ -32,6 +33,7 @@ const PLAN_DETAILS = {
   professional: {
     name: 'Professional',
     price: 29,
+    hasTrial: false,
     features: [
       'Up to 50 team members',
       'Advanced time tracking & wages',
@@ -44,6 +46,7 @@ const PLAN_DETAILS = {
   enterprise: {
     name: 'Enterprise',
     price: 99,
+    hasTrial: false,
     features: [
       'Unlimited team members',
       'Everything in Professional',
@@ -55,6 +58,10 @@ const PLAN_DETAILS = {
   }
 };
 
+// Get PayPal Client ID from environment variable or fallback to hardcoded for demo
+const PAYPAL_CLIENT_ID = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PAYPAL_CLIENT_ID) 
+  || 'AVPznqSR4j_y8O-P6Bgvf302qw7Wob5mRUCT0lB2NTf_hStwDWdS-Dfr4N5kUcC5zGNtXQFG-P6shYxn';
+
 export function PaymentCheckout({ plan, onSuccess, onCancel }: PaymentCheckoutProps) {
   const [loading, setLoading] = useState(true);
   const [paypalLoaded, setPaypalLoaded] = useState(false);
@@ -63,7 +70,7 @@ export function PaymentCheckout({ plan, onSuccess, onCancel }: PaymentCheckoutPr
   useEffect(() => {
     // Load PayPal SDK
     const script = document.createElement('script');
-    script.src = `https://www.paypal.com/sdk/js?client-id=AVPznqSR4j_y8O-P6Bgvf302qw7Wob5mRUCT0lB2NTf_hStwDWdS-Dfr4N5kUcC5zGNtXQFG-P6shYxn&vault=true&intent=subscription`;
+    script.src = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&vault=true&intent=subscription`;
     script.async = true;
     
     script.onload = () => {
@@ -80,7 +87,6 @@ export function PaymentCheckout({ plan, onSuccess, onCancel }: PaymentCheckoutPr
     document.body.appendChild(script);
 
     return () => {
-      // Cleanup
       const existingScript = document.querySelector('script[src*="paypal.com/sdk/js"]');
       if (existingScript) {
         document.body.removeChild(existingScript);
@@ -116,19 +122,29 @@ export function PaymentCheckout({ plan, onSuccess, onCancel }: PaymentCheckoutPr
         try {
           const order = await actions.order.capture();
           
-          // Store subscription data
+          // Calculate trial/billing dates
+          const startDate = new Date();
+          const trialEndsAt = planDetails.hasTrial 
+            ? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
+            : null;
+          const nextBillingDate = planDetails.hasTrial
+            ? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
+            : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
           const subscriptionData = {
             plan: plan,
             orderId: order.id,
-            status: 'active',
-            startDate: new Date().toISOString(),
-            nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            amount: planDetails.price
+            status: planDetails.hasTrial ? 'trial' : 'active',
+            startDate: startDate.toISOString(),
+            trialEndsAt: trialEndsAt,
+            nextBillingDate: nextBillingDate,
+            amount: planDetails.price,
+            officeCount: 0
           };
 
           localStorage.setItem('buziz:subscription', JSON.stringify(subscriptionData));
           
-          toast.success('Payment successful! Welcome to Buziz ' + planDetails.name);
+          toast.success(`Payment successful! ${planDetails.hasTrial ? 'Your 14-day trial starts now' : 'Welcome to Buziz ' + planDetails.name}`);
           onSuccess(subscriptionData);
         } catch (error) {
           console.error('Error capturing payment:', error);
@@ -165,7 +181,12 @@ export function PaymentCheckout({ plan, onSuccess, onCancel }: PaymentCheckoutPr
 
         <div className="text-center mb-8">
           <h1 className="text-3xl text-white mb-2">Complete Your Purchase</h1>
-          <p className="text-gray-400">14-day free trial, then ${planDetails.price}/month</p>
+          <p className="text-gray-400">
+            {planDetails.hasTrial 
+              ? `14-day free trial, then $${planDetails.price}/month`
+              : `$${planDetails.price}/month - starts immediately`
+            }
+          </p>
         </div>
 
         <div className="grid md:grid-cols-2 gap-8 mb-8">
@@ -192,9 +213,11 @@ export function PaymentCheckout({ plan, onSuccess, onCancel }: PaymentCheckoutPr
                 ))}
               </div>
             </Card>
-            <Badge className="bg-yellow-400/20 text-yellow-400 border border-yellow-400/30">
-              ✨ First 14 days free
-            </Badge>
+            {planDetails.hasTrial && (
+              <Badge className="bg-yellow-400/20 text-yellow-400 border border-yellow-400/30">
+                ✨ First 14 days free
+              </Badge>
+            )}
           </div>
 
           {/* Payment */}
@@ -225,9 +248,15 @@ export function PaymentCheckout({ plan, onSuccess, onCancel }: PaymentCheckoutPr
             {' '}and{' '}
             <a href="#" className="text-yellow-400 hover:underline">Privacy Policy</a>.
           </p>
-          <p className="mt-2">
-            You will be charged ${planDetails.price} after your 14-day free trial ends.
-          </p>
+          {planDetails.hasTrial ? (
+            <p className="mt-2">
+              You will be charged ${planDetails.price} after your 14-day free trial ends.
+            </p>
+          ) : (
+            <p className="mt-2">
+              You will be charged ${planDetails.price} immediately and then monthly.
+            </p>
+          )}
         </div>
       </Card>
     </div>

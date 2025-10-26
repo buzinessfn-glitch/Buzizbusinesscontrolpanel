@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
 import { Badge } from '../ui/badge';
-import { Clock, LogIn, LogOut, DollarSign, Calendar } from 'lucide-react';
+import { Clock, LogIn, LogOut, DollarSign, Calendar, Coffee } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { clockIn, clockOut, getClockStatus, getClockHistory } from '../../utils/api';
+import { getData, updateData } from '../../utils/storage';
+import { logActivity } from './ActivityLogs';
 import type { AppState } from '../../App';
 
 interface TimeTrackingProps {
@@ -18,6 +20,20 @@ interface ClockEntry {
   clockOut: string | null;
   hoursWorked: number;
   wagesEarned: number;
+  breaks?: BreakEntry[];
+}
+
+interface BreakEntry {
+  id: string;
+  startTime: string;
+  endTime: string | null;
+  duration?: number;
+}
+
+interface OfficeSettings {
+  breaksEnabled: 'disabled' | 'optional' | 'mandatory';
+  mandatoryBreakAfterHours?: number;
+  breakDuration?: number;
 }
 
 export function TimeTracking({ appState }: TimeTrackingProps) {
@@ -25,8 +41,17 @@ export function TimeTracking({ appState }: TimeTrackingProps) {
   const [clockHistory, setClockHistory] = useState<ClockEntry[]>([]);
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [loading, setLoading] = useState(false);
+  const [onBreak, setOnBreak] = useState(false);
+  const [currentBreak, setCurrentBreak] = useState<BreakEntry | null>(null);
+  const [breakTime, setBreakTime] = useState<string>('00:00:00');
+  const [officeSettings, setOfficeSettings] = useState<OfficeSettings>({
+    breaksEnabled: 'optional',
+    mandatoryBreakAfterHours: 4,
+    breakDuration: 30
+  });
 
   useEffect(() => {
+    loadOfficeSettings();
     loadClockStatus();
     loadClockHistory();
   }, []);
@@ -36,7 +61,23 @@ export function TimeTracking({ appState }: TimeTrackingProps) {
       const interval = setInterval(() => {
         const now = new Date();
         const start = new Date(activeClock.clockIn);
-        const diff = now.getTime() - start.getTime();
+        let diff = now.getTime() - start.getTime();
+        
+        // Subtract break time
+        if (activeClock.breaks) {
+          activeClock.breaks.forEach(b => {
+            if (b.endTime) {
+              const breakDuration = new Date(b.endTime).getTime() - new Date(b.startTime).getTime();
+              diff -= breakDuration;
+            }
+          });
+        }
+
+        // Subtract current break time
+        if (currentBreak && !currentBreak.endTime) {
+          const breakDiff = now.getTime() - new Date(currentBreak.startTime).getTime();
+          diff -= breakDiff;
+        }
         
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -45,16 +86,62 @@ export function TimeTracking({ appState }: TimeTrackingProps) {
         setElapsedTime(
           `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
         );
+
+        // Check mandatory break
+        if (officeSettings.breaksEnabled === 'mandatory' && hours >= (officeSettings.mandatoryBreakAfterHours || 4) && !onBreak && (!activeClock.breaks || activeClock.breaks.length === 0)) {
+          toast.warning('Time for a mandatory break!');
+        }
       }, 1000);
 
       return () => clearInterval(interval);
     }
-  }, [activeClock]);
+  }, [activeClock, currentBreak, onBreak, officeSettings]);
+
+  useEffect(() => {
+    if (onBreak && currentBreak) {
+      const interval = setInterval(() => {
+        const now = new Date();
+        const start = new Date(currentBreak.startTime);
+        const diff = now.getTime() - start.getTime();
+        
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        
+        setBreakTime(
+          `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+        );
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [onBreak, currentBreak]);
+
+  const loadOfficeSettings = async () => {
+    if (!appState.office) return;
+    try {
+      const data = await getData(appState.office.id, 'settings');
+      if (data.data?.breaks) {
+        setOfficeSettings(data.data.breaks);
+      }
+    } catch (error) {
+      console.error('Error loading office settings:', error);
+    }
+  };
 
   const loadClockStatus = async () => {
     try {
       const data = await getClockStatus(appState.currentEmployee!.id);
       setActiveClock(data.activeClock);
+      
+      // Check if on break
+      if (data.activeClock?.breaks) {
+        const activeBreak = data.activeClock.breaks.find((b: BreakEntry) => !b.endTime);
+        if (activeBreak) {
+          setOnBreak(true);
+          setCurrentBreak(activeBreak);
+        }
+      }
     } catch (error) {
       console.error('Error loading clock status:', error);
     }
@@ -74,6 +161,16 @@ export function TimeTracking({ appState }: TimeTrackingProps) {
     try {
       const data = await clockIn(appState.currentEmployee!.id, appState.office!.id);
       setActiveClock(data.clockEntry);
+      
+      logActivity(
+        appState.office!.id,
+        appState.currentEmployee!.id,
+        appState.currentEmployee!.name,
+        'Clocked In',
+        `Clocked in at ${new Date().toLocaleTimeString()}`,
+        'employee'
+      );
+      
       toast.success('Clocked in successfully!');
     } catch (error: any) {
       console.error('Clock in error:', error);
@@ -84,12 +181,27 @@ export function TimeTracking({ appState }: TimeTrackingProps) {
   };
 
   const handleClockOut = async () => {
+    if (onBreak) {
+      toast.error('Please end your break before clocking out');
+      return;
+    }
+
     setLoading(true);
     try {
       const data = await clockOut(appState.currentEmployee!.id, appState.office!.id);
       setActiveClock(null);
       setElapsedTime('00:00:00');
       await loadClockHistory();
+      
+      logActivity(
+        appState.office!.id,
+        appState.currentEmployee!.id,
+        appState.currentEmployee!.name,
+        'Clocked Out',
+        `Clocked out after ${data.clockEntry.hoursWorked} hours, earned $${data.clockEntry.wagesEarned.toFixed(2)}`,
+        'employee'
+      );
+      
       toast.success(`Clocked out! You worked ${data.clockEntry.hoursWorked} hours and earned $${data.clockEntry.wagesEarned.toFixed(2)}`);
     } catch (error: any) {
       console.error('Clock out error:', error);
@@ -99,12 +211,96 @@ export function TimeTracking({ appState }: TimeTrackingProps) {
     }
   };
 
+  const handleStartBreak = async () => {
+    if (!activeClock) return;
+
+    const newBreak: BreakEntry = {
+      id: crypto.randomUUID(),
+      startTime: new Date().toISOString(),
+      endTime: null
+    };
+
+    const updatedClock = {
+      ...activeClock,
+      breaks: [...(activeClock.breaks || []), newBreak]
+    };
+
+    setActiveClock(updatedClock);
+    setCurrentBreak(newBreak);
+    setOnBreak(true);
+
+    // Save to storage
+    try {
+      const data = await getClockStatus(appState.currentEmployee!.id);
+      // Update the active clock with new break
+      await updateData(`employee:${appState.currentEmployee!.id}`, 'active-clock', updatedClock);
+      
+      logActivity(
+        appState.office!.id,
+        appState.currentEmployee!.id,
+        appState.currentEmployee!.name,
+        'Break Started',
+        'Started break',
+        'employee'
+      );
+      
+      toast.success('Break started');
+    } catch (error) {
+      console.error('Error starting break:', error);
+      toast.error('Failed to start break');
+    }
+  };
+
+  const handleEndBreak = async () => {
+    if (!currentBreak || !activeClock) return;
+
+    const now = new Date().toISOString();
+    const duration = Math.floor((new Date(now).getTime() - new Date(currentBreak.startTime).getTime()) / 1000 / 60);
+
+    const updatedBreak = {
+      ...currentBreak,
+      endTime: now,
+      duration
+    };
+
+    const updatedClock = {
+      ...activeClock,
+      breaks: activeClock.breaks?.map(b => b.id === currentBreak.id ? updatedBreak : b) || []
+    };
+
+    setActiveClock(updatedClock);
+    setCurrentBreak(null);
+    setOnBreak(false);
+    setBreakTime('00:00:00');
+
+    // Save to storage
+    try {
+      await updateData(`employee:${appState.currentEmployee!.id}`, 'active-clock', updatedClock);
+      
+      logActivity(
+        appState.office!.id,
+        appState.currentEmployee!.id,
+        appState.currentEmployee!.name,
+        'Break Ended',
+        `Break ended after ${duration} minutes`,
+        'employee'
+      );
+      
+      toast.success(`Break ended (${duration} minutes)`);
+    } catch (error) {
+      console.error('Error ending break:', error);
+      toast.error('Failed to end break');
+    }
+  };
+
   const myHistory = clockHistory
     .filter(entry => entry.employeeId === appState.currentEmployee!.id)
     .sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime());
 
   const totalHours = myHistory.reduce((sum, entry) => sum + entry.hoursWorked, 0);
   const totalWages = myHistory.reduce((sum, entry) => sum + entry.wagesEarned, 0);
+
+  const canTakeBreak = officeSettings.breaksEnabled !== 'disabled' && activeClock && !onBreak;
 
   return (
     <div className="p-6 space-y-6">
@@ -118,24 +314,65 @@ export function TimeTracking({ appState }: TimeTrackingProps) {
         <div className="flex flex-col items-center text-center space-y-4">
           {activeClock ? (
             <>
-              <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center animate-pulse">
-                <Clock className="w-8 h-8 text-white" />
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center ${onBreak ? 'bg-orange-500' : 'bg-green-500 animate-pulse'}`}>
+                {onBreak ? <Coffee className="w-8 h-8 text-white" /> : <Clock className="w-8 h-8 text-white" />}
               </div>
               <div>
-                <Badge className="bg-green-500 text-white mb-2">Currently Clocked In</Badge>
-                <h2 className="text-black mb-1">{elapsedTime}</h2>
+                <Badge className={`${onBreak ? 'bg-orange-500' : 'bg-green-500'} text-white mb-2`}>
+                  {onBreak ? 'On Break' : 'Currently Clocked In'}
+                </Badge>
+                <h2 className="text-black mb-1">{onBreak ? breakTime : elapsedTime}</h2>
                 <p className="text-gray-600 text-sm">
-                  Started at {new Date(activeClock.clockIn).toLocaleTimeString()}
+                  {onBreak 
+                    ? `Break started at ${new Date(currentBreak!.startTime).toLocaleTimeString()}`
+                    : `Clocked in at ${new Date(activeClock.clockIn).toLocaleTimeString()}`
+                  }
                 </p>
               </div>
-              <Button
-                onClick={handleClockOut}
-                disabled={loading}
-                className="bg-red-600 text-white hover:bg-red-700"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Clock Out
-              </Button>
+              <div className="flex gap-2 flex-wrap justify-center">
+                {onBreak ? (
+                  <Button
+                    onClick={handleEndBreak}
+                    className="bg-orange-600 text-white hover:bg-orange-700"
+                  >
+                    <Coffee className="w-4 h-4 mr-2" />
+                    End Break
+                  </Button>
+                ) : (
+                  <>
+                    {canTakeBreak && (
+                      <Button
+                        onClick={handleStartBreak}
+                        variant="outline"
+                        className="border-2 border-orange-500 text-orange-600 hover:bg-orange-50"
+                      >
+                        <Coffee className="w-4 h-4 mr-2" />
+                        Start Break
+                      </Button>
+                    )}
+                    <Button
+                      onClick={handleClockOut}
+                      disabled={loading}
+                      className="bg-red-600 text-white hover:bg-red-700"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Clock Out
+                    </Button>
+                  </>
+                )}
+              </div>
+              {activeClock.breaks && activeClock.breaks.length > 0 && (
+                <div className="w-full mt-4 text-left">
+                  <p className="text-sm text-gray-600 mb-2">Today's Breaks:</p>
+                  <div className="space-y-1">
+                    {activeClock.breaks.filter(b => b.endTime).map(b => (
+                      <p key={b.id} className="text-xs text-gray-500">
+                        {new Date(b.startTime).toLocaleTimeString()} - {b.endTime && new Date(b.endTime).toLocaleTimeString()} ({b.duration} min)
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -203,28 +440,26 @@ export function TimeTracking({ appState }: TimeTrackingProps) {
               <Card key={entry.id} className="p-4 border-2 border-black">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-3 mb-2">
                       <Calendar className="w-4 h-4 text-gray-600" />
                       <span className="text-black">
-                        {new Date(entry.clockIn).toLocaleDateString('en-US', {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}
+                        {new Date(entry.clockIn).toLocaleDateString()}
                       </span>
                     </div>
-                    <div className="text-sm text-gray-600">
-                      <span>{new Date(entry.clockIn).toLocaleTimeString()}</span>
-                      <span className="mx-2">→</span>
-                      <span>
-                        {entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString() : 'In progress'}
-                      </span>
+                    <div className="text-sm text-gray-600 space-y-1">
+                      <p>
+                        {new Date(entry.clockIn).toLocaleTimeString()} - {entry.clockOut ? new Date(entry.clockOut).toLocaleTimeString() : 'In Progress'}
+                      </p>
+                      {entry.breaks && entry.breaks.length > 0 && (
+                        <p className="text-xs text-gray-500">
+                          Breaks: {entry.breaks.filter(b => b.endTime).length} ({entry.breaks.reduce((sum, b) => sum + (b.duration || 0), 0)} min)
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-black">{entry.hoursWorked.toFixed(2)} hrs</p>
-                    <p className="text-sm text-gray-600">${entry.wagesEarned.toFixed(2)}</p>
+                    <p className="text-black mb-1">{entry.hoursWorked.toFixed(2)} hrs</p>
+                    <p className="text-green-600">${entry.wagesEarned.toFixed(2)}</p>
                   </div>
                 </div>
               </Card>
@@ -232,19 +467,6 @@ export function TimeTracking({ appState }: TimeTrackingProps) {
           </div>
         )}
       </div>
-
-      {/* Pay Rate Info */}
-      <Card className="p-4 border-2 border-black bg-gray-50">
-        <div className="flex items-center gap-2 text-sm">
-          <DollarSign className="w-4 h-4" />
-          <span className="text-gray-600">
-            Your current pay rate: 
-            <span className="text-black ml-1">
-              ${appState.currentEmployee?.payRate?.toFixed(2) || '0.00'}/hour
-            </span>
-          </span>
-        </div>
-      </Card>
     </div>
   );
 }
