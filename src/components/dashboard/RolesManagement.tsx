@@ -28,6 +28,7 @@ const AVAILABLE_PERMISSIONS = [
   { id: 'manage_inventory', label: 'Manage Inventory', description: 'Edit inventory items' },
   { id: 'view_inventory', label: 'View Inventory', description: 'View inventory levels' },
   { id: 'manage_suppliers', label: 'Manage Suppliers', description: 'Add and edit suppliers' },
+  { id: 'manage_meetings', label: 'Manage Meetings', description: 'Schedule and approve meetings' },
   { id: 'view_reports', label: 'View Reports', description: 'Access analytics and reports' },
   { id: 'manage_announcements', label: 'Manage Announcements', description: 'Post announcements' },
   { id: 'clock_in_out', label: 'Clock In/Out', description: 'Track work hours' },

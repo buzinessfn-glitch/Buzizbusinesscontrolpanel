@@ -62,9 +62,22 @@ export function Staff({ appState, setAppState }: StaffProps) {
         const activeClock = clockHistory.find((c: any) => c.employeeId === emp.id && !c.clockOut);
         const onBreak = activeClock?.breaks?.some((b: any) => !b.endTime) || false;
         
+        // Priority: on-break > clocked-in > saved manual status (available/dnd) > offline
+        let finalStatus: 'available' | 'dnd' | 'on-break' | 'offline' | 'clocked-in';
+        if (onBreak) {
+          finalStatus = 'on-break';
+        } else if (activeClock) {
+          finalStatus = 'clocked-in';
+        } else if (savedStatus?.status === 'available' || savedStatus?.status === 'dnd') {
+          // Preserve manual status when not clocked in
+          finalStatus = savedStatus.status;
+        } else {
+          finalStatus = 'offline';
+        }
+        
         updatedStatuses[emp.id] = {
           employeeId: emp.id,
-          status: onBreak ? 'on-break' : (activeClock ? 'clocked-in' : (savedStatus?.status || 'offline')),
+          status: finalStatus,
           clockedIn: !!activeClock,
           onBreak: onBreak,
           lastActive: savedStatus?.lastActive || new Date().toISOString()
@@ -73,11 +86,11 @@ export function Staff({ appState, setAppState }: StaffProps) {
       
       setEmployeeStatuses(updatedStatuses);
       
-      // Set my current status
-      if (appState.currentEmployee && updatedStatuses[appState.currentEmployee.id]) {
-        const myCurrentStatus = updatedStatuses[appState.currentEmployee.id].status;
-        if (myCurrentStatus === 'available' || myCurrentStatus === 'dnd') {
-          setMyStatus(myCurrentStatus);
+      // Set my current status (for display in dialog)
+      if (appState.currentEmployee && statuses[appState.currentEmployee.id]) {
+        const savedMyStatus = statuses[appState.currentEmployee.id].status;
+        if (savedMyStatus === 'available' || savedMyStatus === 'dnd') {
+          setMyStatus(savedMyStatus);
         }
       }
     } catch (error) {

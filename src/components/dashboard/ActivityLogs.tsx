@@ -27,7 +27,7 @@ interface LogEntry {
   userName: string;
   action: string;
   details: string;
-  category: 'auth' | 'employee' | 'shift' | 'task' | 'inventory' | 'role' | 'clock' | 'system';
+  category: 'auth' | 'employee' | 'shift' | 'task' | 'inventory' | 'role' | 'clock' | 'system' | 'communication' | 'admin';
 }
 
 export function ActivityLogs({ appState }: ActivityLogsProps) {
@@ -126,7 +126,9 @@ export function ActivityLogs({ appState }: ActivityLogsProps) {
     { id: 'inventory', label: 'Inventory', color: 'bg-orange-500' },
     { id: 'role', label: 'Roles', color: 'bg-pink-500' },
     { id: 'clock', label: 'Time Clock', color: 'bg-cyan-500' },
-    { id: 'system', label: 'System', color: 'bg-red-500' }
+    { id: 'communication', label: 'Communication', color: 'bg-indigo-500' },
+    { id: 'admin', label: 'Admin', color: 'bg-red-500' },
+    { id: 'system', label: 'System', color: 'bg-gray-600' }
   ];
 
   const getCategoryColor = (category: string) => {

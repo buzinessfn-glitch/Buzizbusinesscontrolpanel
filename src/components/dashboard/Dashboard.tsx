@@ -16,7 +16,10 @@ import {
   FileText,
   UserX,
   Coffee,
-  Video
+  Video,
+  Brain,
+  Bell,
+  Activity
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Overview } from './Overview';
@@ -32,6 +35,9 @@ import { RolesManagement } from './RolesManagement';
 import { ActivityLogs } from './ActivityLogs';
 import { LeaveManagement } from './LeaveManagement';
 import { Meetings } from './Meetings';
+import { SmartInsights } from './SmartInsights';
+import { Notifications } from './Notifications';
+import { StatusManagement } from './StatusManagement';
 import type { AppState, Subscription } from '../../App';
 import { getPlanFeatures } from '../../App';
 
@@ -43,7 +49,7 @@ interface DashboardProps {
   onBackToOfficeSelect: () => void;
 }
 
-type View = 'overview' | 'time-tracking' | 'shifts' | 'tasks' | 'inventory' | 'staff' | 'announcements' | 'suppliers' | 'roles' | 'activity-logs' | 'leave' | 'meetings' | 'settings';
+type View = 'overview' | 'time-tracking' | 'shifts' | 'tasks' | 'inventory' | 'staff' | 'announcements' | 'suppliers' | 'roles' | 'activity-logs' | 'leave' | 'meetings' | 'insights' | 'notifications' | 'status' | 'settings';
 
 export function Dashboard({ appState, setAppState, subscription, onLogout, onBackToOfficeSelect }: DashboardProps) {
   const [currentView, setCurrentView] = useState<View>('overview');
@@ -55,6 +61,9 @@ export function Dashboard({ appState, setAppState, subscription, onLogout, onBac
 
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard, requiresFeature: null },
+    { id: 'insights', label: 'Smart Insights', icon: Brain, requiresFeature: 'enterprise' },
+    { id: 'notifications', label: 'Notifications', icon: Bell, requiresFeature: null },
+    { id: 'status', label: 'Team Status', icon: Activity, requiresFeature: null },
     { id: 'time-tracking', label: 'Time Clock', icon: Clock, requiresFeature: null },
     { id: 'shifts', label: 'Shifts', icon: Calendar, requiresFeature: null },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, requiresFeature: null },
@@ -73,6 +82,12 @@ export function Dashboard({ appState, setAppState, subscription, onLogout, onBac
     switch (currentView) {
       case 'overview':
         return <Overview appState={appState} />;
+      case 'insights':
+        return <SmartInsights appState={appState} />;
+      case 'notifications':
+        return <Notifications appState={appState} />;
+      case 'status':
+        return <StatusManagement appState={appState} />;
       case 'time-tracking':
         return <TimeTracking appState={appState} />;
       case 'shifts':

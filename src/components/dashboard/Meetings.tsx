@@ -22,20 +22,24 @@ interface Meeting {
   attendees: string[];
   createdBy: string;
   creatorName: string;
-  status: 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
+  status: 'scheduled' | 'in-progress' | 'completed' | 'cancelled' | 'pending';
+  isRequest: boolean;
+  requestedFor?: string[]; // Employee IDs if this is a request for others
   createdAt: string;
 }
 
 export function Meetings({ appState }: { appState: AppState }) {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isRequestMode, setIsRequestMode] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     datetime: '',
     duration: 60,
     location: '',
-    attendees: [] as string[]
+    attendees: [] as string[],
+    requestedFor: [] as string[]
   });
 
   useEffect(() => {
@@ -57,7 +61,41 @@ export function Meetings({ appState }: { appState: AppState }) {
     const role = appState.roles.find(r => r.name === appState.currentEmployee?.role);
     return appState.currentEmployee.isCreator || 
            appState.currentEmployee.isHeadManager || 
-           role?.permissions.includes('manage_meetings');
+           role?.permissions.includes('manage_meetings') ||
+           role?.permissions.includes('all');
+  };
+
+  const canApproveMeetings = () => {
+    if (!appState.currentEmployee) return false;
+    return appState.currentEmployee.isCreator || appState.currentEmployee.isHeadManager;
+  };
+
+  const checkMeetingConflicts = (datetime: string, duration: number, attendees: string[]): string[] => {
+    const newMeetingStart = new Date(datetime);
+    const newMeetingEnd = new Date(newMeetingStart.getTime() + duration * 60000);
+    
+    const conflicts: string[] = [];
+    
+    meetings.forEach(meeting => {
+      if (meeting.status === 'cancelled') return;
+      
+      const meetingStart = new Date(meeting.datetime);
+      const meetingEnd = new Date(meetingStart.getTime() + meeting.duration * 60000);
+      
+      // Check for time overlap
+      if (newMeetingStart < meetingEnd && newMeetingEnd > meetingStart) {
+        // Check if any attendees overlap
+        const overlappingAttendees = attendees.filter(a => meeting.attendees.includes(a));
+        if (overlappingAttendees.length > 0) {
+          const names = overlappingAttendees.map(id => 
+            appState.employees.find(e => e.id === id)?.name || 'Unknown'
+          );
+          conflicts.push(`${names.join(', ')} - already in "${meeting.title}"`);
+        }
+      }
+    });
+    
+    return conflicts;
   };
 
   const handleSubmit = async () => {
@@ -66,7 +104,17 @@ export function Meetings({ appState }: { appState: AppState }) {
       return;
     }
 
-    if (!canCreateMeeting()) {
+    // Check for conflicts
+    const conflicts = checkMeetingConflicts(formData.datetime, formData.duration, formData.attendees);
+    if (conflicts.length > 0) {
+      toast.error(`Meeting conflicts detected:\n${conflicts.join('\n')}`, { duration: 5000 });
+      return;
+    }
+
+    const hasPermission = canCreateMeeting();
+    const isRequest = isRequestMode || !hasPermission;
+
+    if (!hasPermission && !isRequest) {
       toast.error('You do not have permission to create meetings');
       return;
     }
@@ -81,7 +129,9 @@ export function Meetings({ appState }: { appState: AppState }) {
       attendees: formData.attendees,
       createdBy: appState.currentEmployee!.id,
       creatorName: appState.currentEmployee!.name,
-      status: 'scheduled',
+      status: isRequest ? 'pending' : 'scheduled',
+      isRequest: isRequest,
+      requestedFor: isRequest ? formData.requestedFor : undefined,
       createdAt: new Date().toISOString()
     };
 
@@ -93,14 +143,15 @@ export function Meetings({ appState }: { appState: AppState }) {
       appState.office!.id,
       appState.currentEmployee!.id,
       appState.currentEmployee!.name,
-      'Meeting Created',
-      `Created meeting: ${formData.title} on ${new Date(formData.datetime).toLocaleString()}`,
+      isRequest ? 'Meeting Request Submitted' : 'Meeting Created',
+      `${isRequest ? 'Requested' : 'Created'} meeting: ${formData.title} on ${new Date(formData.datetime).toLocaleString()}`,
       'admin'
     );
 
-    toast.success('Meeting created successfully');
+    toast.success(isRequest ? 'Meeting request submitted for approval' : 'Meeting created successfully');
     setDialogOpen(false);
-    setFormData({ title: '', description: '', datetime: '', duration: 60, location: '', attendees: [] });
+    setIsRequestMode(false);
+    setFormData({ title: '', description: '', datetime: '', duration: 60, location: '', attendees: [], requestedFor: [] });
   };
 
   const handleDelete = async (meetingId: string) => {
@@ -146,9 +197,62 @@ export function Meetings({ appState }: { appState: AppState }) {
     }));
   };
 
+  const handleApproveMeeting = async (meetingId: string) => {
+    const updated = meetings.map(m =>
+      m.id === meetingId ? { ...m, status: 'scheduled' as const, isRequest: false } : m
+    );
+    await updateData(appState.office!.id, 'meetings', updated);
+    setMeetings(updated);
+
+    const meeting = meetings.find(m => m.id === meetingId);
+    if (meeting) {
+      logActivity(
+        appState.office!.id,
+        appState.currentEmployee!.id,
+        appState.currentEmployee!.name,
+        'Meeting Approved',
+        `Approved meeting: ${meeting.title}`,
+        'admin'
+      );
+    }
+
+    toast.success('Meeting request approved');
+  };
+
+  const handleRejectMeeting = async (meetingId: string) => {
+    const meeting = meetings.find(m => m.id === meetingId);
+    const updated = meetings.filter(m => m.id !== meetingId);
+    await updateData(appState.office!.id, 'meetings', updated);
+    setMeetings(updated);
+
+    if (meeting) {
+      logActivity(
+        appState.office!.id,
+        appState.currentEmployee!.id,
+        appState.currentEmployee!.name,
+        'Meeting Rejected',
+        `Rejected meeting request: ${meeting.title}`,
+        'admin'
+      );
+    }
+
+    toast.success('Meeting request rejected');
+  };
+
+  const toggleRequestedFor = (employeeId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      requestedFor: prev.requestedFor.includes(employeeId)
+        ? prev.requestedFor.filter(id => id !== employeeId)
+        : [...prev.requestedFor, employeeId]
+    }));
+  };
+
   const upcomingMeetings = meetings.filter(m => 
     m.status === 'scheduled' && new Date(m.datetime) > new Date()
   );
+
+  const pendingMeetings = meetings.filter(m => m.status === 'pending');
 
   const pastMeetings = meetings.filter(m => 
     m.status === 'completed' || (m.status === 'scheduled' && new Date(m.datetime) < new Date())
@@ -156,26 +260,90 @@ export function Meetings({ appState }: { appState: AppState }) {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-black mb-1">Meetings</h1>
           <p className="text-gray-600">Schedule and manage team meetings</p>
         </div>
-        {canCreateMeeting() && (
-          <Button
-            onClick={() => setDialogOpen(true)}
-            className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-black hover:from-yellow-500 hover:to-yellow-600"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Meeting
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {canCreateMeeting() ? (
+            <Button
+              onClick={() => {
+                setIsRequestMode(false);
+                setDialogOpen(true);
+              }}
+              className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-black hover:from-yellow-500 hover:to-yellow-600"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              New Meeting
+            </Button>
+          ) : (
+            <Button
+              onClick={() => {
+                setIsRequestMode(true);
+                setDialogOpen(true);
+              }}
+              variant="outline"
+              className="border-2 border-black"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Request Meeting
+            </Button>
+          )}
+        </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* Pending Requests - Only for managers */}
+        {canApproveMeetings() && pendingMeetings.length > 0 && (
+          <div>
+            <h2 className="text-black mb-4">Pending Requests ({pendingMeetings.length})</h2>
+            <div className="space-y-3">
+              {pendingMeetings.map(meeting => (
+                <Card key={meeting.id} className="p-4 border-2 border-yellow-400 bg-yellow-50">
+                  <div className="mb-3">
+                    <div className="flex items-start justify-between mb-2">
+                      <h3 className="text-black">{meeting.title}</h3>
+                      <Badge className="bg-yellow-500 text-black">Pending</Badge>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-2">Requested by: {meeting.creatorName}</p>
+                    <div className="space-y-1 text-sm text-gray-700">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4" />
+                        {new Date(meeting.datetime).toLocaleDateString()} at {new Date(meeting.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4" />
+                        {meeting.duration} minutes
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => handleApproveMeeting(meeting.id)}
+                      className="flex-1 bg-green-500 hover:bg-green-600 text-white"
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleRejectMeeting(meeting.id)}
+                      className="flex-1 border-red-500 text-red-500 hover:bg-red-50"
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Upcoming Meetings */}
         <div>
-          <h2 className="text-black mb-4">Upcoming Meetings</h2>
+          <h2 className="text-black mb-4">Upcoming Meetings ({upcomingMeetings.length})</h2>
           <div className="space-y-3">
             {upcomingMeetings.length === 0 ? (
               <Card className="p-8 text-center border-2 border-dashed border-gray-300">
@@ -283,8 +451,17 @@ export function Meetings({ appState }: { appState: AppState }) {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Schedule New Meeting</DialogTitle>
+            <DialogTitle>
+              {isRequestMode ? 'Request Meeting' : 'Schedule New Meeting'}
+            </DialogTitle>
           </DialogHeader>
+          {isRequestMode && (
+            <div className="p-3 bg-yellow-50 border border-yellow-400 rounded-lg">
+              <p className="text-sm text-gray-700">
+                This meeting will require approval from a manager before being scheduled.
+              </p>
+            </div>
+          )}
           <div className="space-y-4">
             <div>
               <Label>Title *</Label>
@@ -353,6 +530,26 @@ export function Meetings({ appState }: { appState: AppState }) {
                 ))}
               </div>
             </div>
+            {isRequestMode && (
+              <div>
+                <Label>Request Meeting For (Optional)</Label>
+                <p className="text-xs text-gray-500 mb-2">Select employees this meeting is being requested on behalf of</p>
+                <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-lg p-3">
+                  {appState.employees.filter(e => e.id !== appState.currentEmployee?.id).map(emp => (
+                    <div key={emp.id} className="flex items-center gap-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={formData.requestedFor.includes(emp.id)}
+                        onChange={() => toggleRequestedFor(emp.id)}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-sm">{emp.name}</span>
+                      <Badge variant="outline" className="text-xs">{emp.role}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex gap-2 pt-4">
               <Button variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
                 Cancel
@@ -361,7 +558,7 @@ export function Meetings({ appState }: { appState: AppState }) {
                 onClick={handleSubmit}
                 className="flex-1 bg-gradient-to-r from-yellow-400 to-yellow-500 text-black hover:from-yellow-500 hover:to-yellow-600"
               >
-                Create Meeting
+                {isRequestMode ? 'Submit Request' : 'Create Meeting'}
               </Button>
             </div>
           </div>
