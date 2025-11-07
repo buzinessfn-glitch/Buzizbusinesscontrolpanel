@@ -19,7 +19,16 @@ import {
   Video,
   Brain,
   Bell,
-  Activity
+  Activity,
+  DollarSign,
+  Car,
+  MessageSquare,
+  MessageCircle,
+  UserCircle,
+  Camera,
+  Palette,
+  RefreshCw,
+  TrendingUp
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Overview } from './Overview';
@@ -38,6 +47,15 @@ import { Meetings } from './Meetings';
 import { SmartInsights } from './SmartInsights';
 import { Notifications } from './Notifications';
 import { StatusManagement } from './StatusManagement';
+import { WageSystem } from './WageSystem';
+import { ParkingManagement } from './ParkingManagement';
+import { EmployeeChat } from './EmployeeChat';
+import { PrivateMessages } from './PrivateMessages';
+import { EmployeeProfiles } from './EmployeeProfiles';
+import { SecurityCameras } from './SecurityCameras';
+import { OfficeCustomization } from './OfficeCustomization';
+import { ShiftSwapBoard } from './ShiftSwapBoard';
+import { TimeOffBalance } from './TimeOffBalance';
 import type { AppState, Subscription } from '../../App';
 import { getPlanFeatures } from '../../App';
 
@@ -49,7 +67,7 @@ interface DashboardProps {
   onBackToOfficeSelect: () => void;
 }
 
-type View = 'overview' | 'time-tracking' | 'shifts' | 'tasks' | 'inventory' | 'staff' | 'announcements' | 'suppliers' | 'roles' | 'activity-logs' | 'leave' | 'meetings' | 'insights' | 'notifications' | 'status' | 'settings';
+type View = 'overview' | 'time-tracking' | 'shifts' | 'tasks' | 'inventory' | 'staff' | 'announcements' | 'suppliers' | 'roles' | 'activity-logs' | 'leave' | 'meetings' | 'insights' | 'notifications' | 'status' | 'wages' | 'parking' | 'chat' | 'messages' | 'profiles' | 'security' | 'customization' | 'shift-swap' | 'time-off-balance' | 'settings';
 
 export function Dashboard({ appState, setAppState, subscription, onLogout, onBackToOfficeSelect }: DashboardProps) {
   const [currentView, setCurrentView] = useState<View>('overview');
@@ -64,17 +82,26 @@ export function Dashboard({ appState, setAppState, subscription, onLogout, onBac
     { id: 'insights', label: 'Smart Insights', icon: Brain, requiresFeature: 'enterprise' },
     { id: 'notifications', label: 'Notifications', icon: Bell, requiresFeature: null },
     { id: 'status', label: 'Team Status', icon: Activity, requiresFeature: null },
+    { id: 'profiles', label: 'Profiles', icon: UserCircle, requiresFeature: null },
+    { id: 'messages', label: 'Direct Messages', icon: MessageCircle, requiresFeature: null },
+    { id: 'chat', label: 'Team Chat', icon: MessageSquare, requiresFeature: null },
     { id: 'time-tracking', label: 'Time Clock', icon: Clock, requiresFeature: null },
+    { id: 'time-off-balance', label: 'Time Off Balance', icon: TrendingUp, requiresFeature: 'advanced' },
+    { id: 'wages', label: 'Wages & Overtime', icon: DollarSign, requiresFeature: 'advanced' },
     { id: 'shifts', label: 'Shifts', icon: Calendar, requiresFeature: null },
+    { id: 'shift-swap', label: 'Shift Swap Board', icon: RefreshCw, requiresFeature: 'advanced' },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, requiresFeature: null },
-    { id: 'leave', label: 'Leave & Time Off', icon: UserX, requiresFeature: 'advanced' },
+    { id: 'leave', label: 'Leave Requests', icon: UserX, requiresFeature: 'advanced' },
     { id: 'meetings', label: 'Meetings', icon: Video, requiresFeature: 'advanced' },
+    { id: 'parking', label: 'Parking', icon: Car, requiresFeature: 'advanced' },
+    { id: 'security', label: 'Security Cameras', icon: Camera, requiresFeature: 'enterprise' },
     { id: 'inventory', label: 'Inventory', icon: Package, requiresFeature: 'advanced' },
     { id: 'suppliers', label: 'Suppliers', icon: Truck, requiresFeature: 'advanced' },
     { id: 'staff', label: 'Staff', icon: Users, requiresFeature: null },
     { id: 'roles', label: 'Roles', icon: Shield, requiresFeature: 'advanced' },
     { id: 'announcements', label: 'Announcements', icon: Megaphone, requiresFeature: null },
     { id: 'activity-logs', label: 'Activity Logs', icon: FileText, requiresFeature: 'advanced' },
+    { id: 'customization', label: 'Office Branding', icon: Palette, requiresFeature: 'enterprise' },
     { id: 'settings', label: 'Settings', icon: Settings, requiresFeature: null },
   ].filter(item => !item.requiresFeature || features.includes(item.requiresFeature));
 
@@ -88,16 +115,32 @@ export function Dashboard({ appState, setAppState, subscription, onLogout, onBac
         return <Notifications appState={appState} />;
       case 'status':
         return <StatusManagement appState={appState} />;
+      case 'profiles':
+        return <EmployeeProfiles appState={appState} setAppState={setAppState} />;
+      case 'messages':
+        return <PrivateMessages appState={appState} />;
+      case 'chat':
+        return <EmployeeChat appState={appState} />;
       case 'time-tracking':
         return <TimeTracking appState={appState} />;
+      case 'time-off-balance':
+        return <TimeOffBalance appState={appState} />;
+      case 'wages':
+        return <WageSystem appState={appState} />;
       case 'shifts':
         return <Shifts appState={appState} setAppState={setAppState} />;
+      case 'shift-swap':
+        return <ShiftSwapBoard appState={appState} />;
       case 'tasks':
         return <Tasks appState={appState} setAppState={setAppState} />;
       case 'leave':
         return <LeaveManagement appState={appState} />;
       case 'meetings':
         return <Meetings appState={appState} />;
+      case 'parking':
+        return <ParkingManagement appState={appState} />;
+      case 'security':
+        return <SecurityCameras appState={appState} />;
       case 'inventory':
         return <Inventory appState={appState} setAppState={setAppState} />;
       case 'staff':
@@ -110,6 +153,8 @@ export function Dashboard({ appState, setAppState, subscription, onLogout, onBac
         return <RolesManagement appState={appState} setAppState={setAppState} />;
       case 'activity-logs':
         return <ActivityLogs appState={appState} />;
+      case 'customization':
+        return <OfficeCustomization appState={appState} setAppState={setAppState} />;
       case 'settings':
         return <SettingsPanel appState={appState} setAppState={setAppState} />;
       default:

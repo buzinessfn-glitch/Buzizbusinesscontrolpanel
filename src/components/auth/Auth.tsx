@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { Checkbox } from '../ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { createClient } from '../../utils/supabase/client';
 import { signup } from '../../utils/api';
@@ -16,6 +17,19 @@ export function Auth({ onAuthSuccess }: AuthProps) {
   const [loading, setLoading] = useState(false);
   const [signupData, setSignupData] = useState({ name: '', email: '', password: '' });
   const [loginData, setLoginData] = useState({ email: '', password: '' });
+  const [rememberMe, setRememberMe] = useState(false);
+
+  useEffect(() => {
+    // Check for remembered credentials
+    const remembered = localStorage.getItem('buziz_remember_me');
+    if (remembered === 'true') {
+      const email = localStorage.getItem('buziz_email');
+      if (email) {
+        setLoginData(prev => ({ ...prev, email }));
+        setRememberMe(true);
+      }
+    }
+  }, []);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +78,15 @@ export function Auth({ onAuthSuccess }: AuthProps) {
       });
 
       if (error) throw error;
+
+      // Handle remember me
+      if (rememberMe) {
+        localStorage.setItem('buziz_remember_me', 'true');
+        localStorage.setItem('buziz_email', loginData.email);
+      } else {
+        localStorage.removeItem('buziz_remember_me');
+        localStorage.removeItem('buziz_email');
+      }
 
       toast.success('Logged in successfully!');
       onAuthSuccess(data.session);
@@ -115,6 +138,20 @@ export function Auth({ onAuthSuccess }: AuthProps) {
                   className="mt-1.5"
                   disabled={loading}
                 />
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="remember-me"
+                  checked={rememberMe}
+                  onCheckedChange={(checked) => setRememberMe(checked as boolean)}
+                />
+                <Label
+                  htmlFor="remember-me"
+                  className="text-sm cursor-pointer"
+                >
+                  Remember me
+                </Label>
               </div>
 
               <Button
